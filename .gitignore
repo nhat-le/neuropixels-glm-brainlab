@@ -1,0 +1,9 @@
+# Data folders
+Cori*
+Radnitz*
+
+# Data files
+*.npy
+
+# Documents
+*.docx
