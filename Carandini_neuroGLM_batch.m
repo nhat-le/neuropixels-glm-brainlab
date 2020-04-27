@@ -1,8 +1,13 @@
+close all
+clear all
+
 %% Load the raw data
 %rawData = load('exampleData.mat'); % run tutorial_exampleData to generate this
 % nTrials = rawData.nTrials; % number of trials
 unitOfTime = 'ms';
 binSize = 1; % TODO some continuous observations might need up/down-sampling if binSize is not 1!?
+
+global trialData
 
 %% Specify the fields to load
 expt = buildGLM.initExperiment(unitOfTime, binSize, 'Carandini', []);
@@ -30,7 +35,7 @@ expt = buildGLM.registerSpikeTrain(expt, 'sptrain', 'Our Neuron'); % Spike train
 % expt = buildGLM.registerValue(expt, 'choice', 'Direction of Choice');
 
 %% Load the Cori dataset
-folder = 'Data\Radnitz_2017-01-08';
+folder = 'Radnitz_2017-01-08';
 spikes_times = readNPY(fullfile(folder, 'spikes.times.npy'));
 spikes_clusters = readNPY(fullfile(folder, 'spikes.clusters.npy'));
 clusters_annotation = readNPY(fullfile(folder, 'clusters._phy_annotation.npy'));
@@ -61,28 +66,33 @@ trialData.trials_left_contrast = trialData.trials_left_contrast(trials_included)
 trialData.trials_right_contrast = trialData.trials_right_contrast(trials_included);
 
 %% Build the trial structure
-cluster_id = 740; %good_clusters(13);
-cluster_id_other = 477;
-trialData.spikes_other = {};
+% Note: unit numbers for Radnitz 2017-01-08
+ACC_cells = [201, 626, 627, 628, 629, 37];
+SC_cells = [760, 1250, 1155, 808, 855, 790, 798];
+VC_cells = [740, 817, 836, 862];
+
+%cluster_id = SC_cells(6);
+cluster_id = VC_cells(1);
+
 trialData.spikes = spikes_times(spikes_clusters == cluster_id);
-trialData.spikes_other{1} = spikes_times(spikes_clusters == cluster_id_other);
+
+trialData.spikes_other = {};
+for i = 1:numel(ACC_cells)
+    cluster_id_other = ACC_cells(i);
+    trialData.spikes_other{i} = spikes_times(spikes_clusters == cluster_id_other);
+end
 
 nTrials = sum(trials_included);
-trialStruct = makeTrialStruct(trialData);
+trialStruct = makeTrialStructBatch(nTrials);
 
 expt.trial = trialStruct;
-
-%%
-spikeTrialTimes = splitSpikeTimesToTrials(trialData.spikes, trialData.trials_feedback_times, trialData.trials_stim_times);
-plotSpikeRaster(spikeTrialTimes,'PlotType','vertline','RelSpikeStartTime',0.01,'XLimForCell',[0 0.201]);
 
 %% Visualize PSTH
 window = [-1 3];
 nbins = 400;
-figure;
+figure(5);
 [x, y, spikeBinnedCounts] = BinSpikeTimes(trialData.spikes, trialData.trials_feedback_times, window, nbins);
-imagesc(1-spikeBinnedCounts);
-colormap gray
+imagesc(spikeBinnedCounts);
 
 %% Build 'designSpec' which specifies how to generate the design matrix
 % Each covariate to include in the model and analysis is specified.
@@ -106,12 +116,11 @@ bshist = basisFactory.makeSmoothTemporalBasis('boxcar', 300, 40, binfun);
 %     'Stimulus on right (high contrast)', bs3, -100);
 % dspec = buildGLM.addCovariateTiming(dspec, 'stimOnRightLow', 'stimOnRightLow', ...
 %     'Stimulus on right (low contrast)', bs3, -100);
-% dspec = buildGLM.addCovariateTiming(dspec, 'stimOnLeft', 'stimOnLeft', ...
-%      'Stimulus onset', bsStim);
-%  dspec = buildGLM.addCovariateTiming(dspec, 'stimOnRight', 'stimOnRight', ...
-%      'Stimulus onset', bsStim);
-dspec = buildGLM.addCovariateTiming(dspec, 'stimOn', 'stimOn', ...
-      'Stimulus onset', bsStim);
+dspec = buildGLM.addCovariateTiming(dspec, 'stimOnLeft', 'stimOnLeft', ...
+     'Stimulus onset', bsStim);
+ dspec = buildGLM.addCovariateTiming(dspec, 'stimOnRight', 'stimOnRight', ...
+     'Stimulus onset', bsStim);
+
 
 dspec = buildGLM.addCovariateTiming(dspec, 'goCue', 'goCue', 'Go Cue', bs3, -100);
 dspec = buildGLM.addCovariateTiming(dspec, 'leftResponse', 'leftResponse', 'Left Response', bs3, -100);
@@ -128,8 +137,12 @@ dspec = buildGLM.addCovariateTiming(dspec, 'negFeedback', 'negFeedback', 'negFee
 dspec = buildGLM.addCovariateSpiketrain(dspec, 'hist', 'sptrain', 'History filter', bshist);
 
 %% Coupling filter
-dspecHist = buildGLM.addCovariateSpiketrain(dspec, 'coupling', 'sptrain', 'Coupling from neuron 2', bshist);
-
+for i = 1:numel(ACC_cells)
+    othername = sprintf('sptrain%d', i);
+    fname = sprintf('coupling%d', i);
+    label = sprintf('Coupling from neuron %d', i);
+    dspec = buildGLM.addCovariateSpiketrain(dspec, fname, othername, label, bshist);
+end
 
 %% Duration boxcar
 % dspec = buildGLM.addCovariateBoxcar(dspec, 'dots', 'dotson', 'dotsoff', 'Motion dots stim');
@@ -153,9 +166,8 @@ dspecHist = buildGLM.addCovariateSpiketrain(dspec, 'coupling', 'sptrain', 'Coupl
 %buildGLM.summarizeDesignSpec(dspec); % print out the current configuration
 
 %% Compile the data into 'DesignMatrix' structure
-trialIndices = 1:nTrials; % use all trials except the last one
+trialIndices = 1:nTrials-1; % use all trials except the last one
 dm = buildGLM.compileSparseDesignMatrix(dspec, trialIndices);
-dm_hist = buildGLM.compileSparseDesignMatrix(dspecHist, trialIndices);
 
 %% Visualize the design matrix
 endTrialIndices = cumsum(binfun([expt.trial(trialIndices).duration]));
@@ -174,27 +186,22 @@ y = buildGLM.getBinnedSpikeTrain(expt, 'sptrain', dm.trialIndices);
 % dm = buildGLM.zscoreDesignMatrix(dm, [colIndices{:}]);
 
 dm = buildGLM.addBiasColumn(dm); % DO NOT ADD THE BIAS TERM IF USING GLMFIT
-dm_hist = buildGLM.addBiasColumn(dm_hist);
 
 %% Least squares for initialization
 tic
 wInit = dm.X \ y;
-%wInitHist = dm_hist.X \ y;
 toc
 
 %% Use matRegress for Poisson regression
 % it requires `fminunc` from MATLAB's optimization toolbox
 fnlin = @nlfuns.exp; % inverse link function (a.k.a. nonlinearity)
 lfunc = @(w)(glms.neglog.poisson(w, dm.X, y, fnlin)); % cost/loss function
-% lfuncHist = @(w)(glms.neglog.poisson(w, dm_hist.X, y, fnlin)); % cost/loss function
 
 opts = optimoptions(@fminunc, 'Algorithm', 'trust-region', ...
     'GradObj', 'on', 'Hessian','on');
 
 [wml, nlogli, exitflag, ostruct, grad, hessian] = fminunc(lfunc, wInit, opts);
-%[wmlH, nlogliH, exitflagH, ostructH, gradH, hessianH] = fminunc(lfuncHist, wInitHist, opts);
 wvar = diag(inv(hessian));
-%wvarH = diag(inv(hessianH));
 
 %% Alternative maximum likelihood Poisson estimation using glmfit
 %[wml, dev, stats] = glmfit(dm.X, y, 'poisson', 'link', 'log');
@@ -206,60 +213,35 @@ wvar = diag(inv(hessian));
 % fprintf('AIC for model 0 = %.4f; AIC for model 1 = %.4f\n', AIC_model0,...
 %     AIC_model1);
 
-%% Assess goodness of fit
-lambda = exp(dm.X * wml);
-t_spikes = find(y > 0);
-DLambdas = [];
-for i = 1:numel(t_spikes)-1
-    DLambda = sum(lambda(t_spikes(i)+1 : t_spikes(i+1)));
-    DLambdas(i) = DLambda;
-end
-
-zk = 1 - exp(-DLambdas);
-
-%KS plot
-plot(sort(zk), (1:numel(zk)) / numel(zk));
-hold on
-plotUnity;
-errbars = 1.36 / numel(zk)^0.5;
-plot([0, 1], [errbars 1+errbars], 'k--');
-plot([0, 1], [-errbars 1-errbars], 'k--');
-ylim([0,1])
-
-
-
-
-%% Visualize
+%% Visualize the coupling filters
 ws = buildGLM.combineWeights(dm, wml);
 wvars = buildGLM.combineWeights(dm, wvar);
 
+fig = figure(2913); clf;
+for i = 1:numel(ACC_cells)
+    subplot(6, 1, i)
+    label = sprintf('coupling%d', i);
+    errorbar(ws.(label).tr, ws.(label).data, sqrt(wvars.(label).data));
+    hline(0)
+    %ylim([-10 10])
+    title(label);
+    
+end
+
 % fig = figure(2913); clf;
-% nCovar = numel(dspecHist.covar);
-% count = 1;
-% lst = [1, 2, 4, 5, 6, 8, 9];
-% for kCov = lst
-%     label = dspecHist.covar(kCov).label;
-%     subplot(numel(lst), 1, count);
+% nCovar = numel(dspec.covar);
+% for kCov = 5:nCovar
+%     label = dspec.covar(kCov).label;
+%     subplot(nCovar-4, 1, kCov-4);
 %     %plot(ws.(label).tr, (ws.(label).data));
 %     errorbar(ws.(label).tr, ws.(label).data, sqrt(wvars.(label).data));
 %     hline(0)
 %     %ylim([-10 10])
 %     title(label);
-%     count = count + 1;
-%     ylim([-10 10])
 % end
 
-fig = figure(2914); clf;
-nCovar = numel(dspec.covar);
-for kCov = 1:nCovar
-    label = dspec.covar(kCov).label;
-    subplot(nCovar, 1, kCov);
-    %plot(ws.(label).tr, (ws.(label).data));
-    errorbar(ws.(label).tr, ws.(label).data, sqrt(wvars.(label).data));
-    hline(0)
-    ylim([-10 10])
-    title(label);
-end
+
+
 
 %% Compare different stimulus types
 % figure;
@@ -284,7 +266,7 @@ function spikeTrialTimes = splitSpikeTimesToTrials(spikes, tstarts, tends)
 spikeTrialTimes = {};
 for i = 1:numel(tstarts)
     spikeTrial = spikes(spikes > tstarts(i) & spikes < tends(i));
-    spikeTrialTimes{i} = spikeTrial' - tstarts(i);
+    spikeTrialTimes{i} = spikeTrial;
 end
 
 end

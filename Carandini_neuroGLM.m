@@ -22,7 +22,7 @@ expt = buildGLM.registerSpikeTrain(expt, 'sptrain', 'Our Neuron'); % Spike train
 %% Load the Cori dataset
 spikes_times = readNPY('Cori_2016-12-14\spikes.times.npy');
 spikes_clusters = readNPY('Cori_2016-12-14\spikes.clusters.npy');
-cluster_id = 16;
+cluster_id = 1047;
 
 trials_included = readNPY('Cori_2016-12-14/trials.included.npy');
 trials_feedback_times = readNPY('Cori_2016-12-14/trials.feedback_times.npy');

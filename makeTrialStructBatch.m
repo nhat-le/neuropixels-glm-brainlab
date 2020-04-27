@@ -1,9 +1,10 @@
-function trialStruct = makeTrialStruct(trialData)
-nTrials = numel(trialData.trials_gocue_times);
+function trialStruct = makeTrialStruct(nTrials)
+global trialData
 trialStruct = struct();
 trialStruct(nTrials).duration = 0; % preallocate
 
 badTrials = [];
+nOther = numel(trialData.spikes_other);
 
 for idTrial = 1:nTrials
     %Duration
@@ -71,16 +72,12 @@ for idTrial = 1:nTrials
     spike_trial = trialData.spikes(trialData.spikes > trialData.trials_start(idTrial, 1) & ...
         trialData.spikes < trialData.trials_start(idTrial, 2));
     
-%     spike_trial_other = trialData.spikes_other(trialData.spikes_other > trialData.trials_start(idTrial, 1) & ...
-%         trialData.spikes_other < trialData.trials_start(idTrial, 2));
-    
+    % Spike train of self
     trialStruct(idTrial).sptrain = 1000 * (spike_trial - ...
         trialData.trials_start(idTrial, 1));
-%     trialStruct(idTrial).sptrain2 = 1000 * (spike_trial_other - ...
-%         trialData.trials_start(idTrial, 1));
     
     % Spike trains of others
-    for j = 1:numel(trialData.spikes_other)
+    for j = 1:nOther
         spOther = trialData.spikes_other{j};
         spike_trial_other = spOther(spOther > trialData.trials_start(idTrial, 1) & ...
             spOther < trialData.trials_start(idTrial, 2));
@@ -89,6 +86,10 @@ for idTrial = 1:nTrials
         trialStruct(idTrial).(othername) = 1000 * (spike_trial_other - ...
         trialData.trials_start(idTrial, 1));
     end
+    
+
+    
+    
     
     
     if ~isempty(trialStruct(idTrial).sptrain)
