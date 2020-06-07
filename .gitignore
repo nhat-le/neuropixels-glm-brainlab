@@ -7,3 +7,14 @@ Radnitz*
 
 # Documents
 *.docx
+
+Data*
+*.mat
+*.pdf
+Figs*
+Misc*
+*.csv
+
+choicePoints/
+.ipynb_checkpoints/*.ipynb
+*.fig

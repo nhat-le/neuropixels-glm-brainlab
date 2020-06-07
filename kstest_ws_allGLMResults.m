@@ -28,14 +28,23 @@ expt = buildGLM.registerSpikeTrain(expt, 'sptrain', 'Our Neuron'); % Spike train
 txt = txt(2:end,:);
 
 %%
-area = 'LP';
+area = 'ACA';
 dirs = txt(:,end);
 % Directories containing the area
 subdirs = unique(dirs(master(:,2) >= 2 & strcmp(txt(:,7), area), :));
 Nunits = numel(dirs(master(:,2) >= 2 & strcmp(txt(:,7), area), :));
 tic;
-%%
-for ifolder = 1:numel(dirs)
+
+pvallst = [];
+totalSpikes = [];
+folderNames = {};
+clustIDs = [];
+
+pd = makedist('Uniform','Lower',0,'Upper',1);
+ctr = 1;
+
+
+for ifolder = 7% 1:numel(subdirs)
     folderName = subdirs{ifolder};
     subtbl = master(master(:,2) >= 2 & strcmp(dirs, folderName) & ...
         strcmp(txt(:,7), area), :);
@@ -62,6 +71,7 @@ for ifolder = 1:numel(dirs)
     trialData.trials_left_contrast = readNPY(fullfile(folder, 'trials.visualStim_contrastLeft.npy'));
     trialData.trials_right_contrast = readNPY(fullfile(folder, 'trials.visualStim_contrastRight.npy'));
     trialData.trials_decision_times = readNPY(fullfile(folder, 'trials.decision_times.npy'));
+    
     %% Build the trial structure
     trialData.spikes = nan;
 
@@ -96,7 +106,7 @@ for ifolder = 1:numel(dirs)
     dspec = buildGLM.addCovariateTiming(dspec, 'negFeedback', 'negFeedback', 'negFeedback', bs3, -100);
 
     %% Get the spike trains back to regress against
-    for i = 1:numel(good_clusters)
+    for i = 17%1:numel(good_clusters)
         name = sprintf('sptrain%d', i);
         dspecCell = buildGLM.addCovariateSpiketrain(dspec, 'hist', name, 'History filter', bshist);
         dmCell = buildGLM.compileSparseDesignMatrix(dspecCell, trialIndices);
@@ -104,91 +114,88 @@ for ifolder = 1:numel(dirs)
         fprintf('Processing cell %d of %d...\n', i, numel(good_clusters));
         y = buildGLM.getBinnedSpikeTrain(expt, name, dmCell.trialIndices);
 
+        dmCell = buildGLM.addBiasColumn(dmCell);
+        wfilename = sprintf('%s_unit%d_%s.mat', folderName, good_clusters(i), area)
+        load(fullfile('GLMResults', wfilename));
+        
+        % Transform
+        %pd = makedist('Uniform','Lower',0,'Upper',1);
 
-        %% Do some processing on the design matrix
-        dmCell = buildGLM.addBiasColumn(dmCell); % DO NOT ADD THE BIAS TERM IF USING GLMFIT
+        if size(dmCell.X, 2) == numel(wml)
+            ypred = exp(dmCell.X * wml);
+            events = find(y);
 
-        %% Least squares for initialization
-        %tic
-        wInit = dmCell.X \ y;
-         %toc
+    %         ycumsum = cumsum(ypred);
+    %         tvals2 = ycumsum(events(2:end)) - ycumsum(events(1:end-1));
 
-        %% Use matRegress for Poisson regression
-        % it requires `fminunc` from MATLAB's optimization toolbox
-        fnlin = @nlfuns.exp; % inverse link function (a.k.a. nonlinearity)
-        lfunc = @(w)(glms.neglog.poisson(w, dmCell.X, y, fnlin)); % cost/loss function
+            tvals = [];
+            for eventid = 1:numel(events) - 1
+                tvals(eventid) = sum(ypred((events(eventid)) : (events(eventid + 1) - 1)));
+            end
 
-        opts = optimoptions(@fminunc, 'Algorithm', 'trust-region', ...
-            'GradObj', 'on', 'Hessian','on', 'Display','off');
+            zvals = 1 - exp(-tvals);
+            if numel(zvals) == 0
+                p = -1;
+            else
 
-        [wml, nlogli, exitflag, ostruct, grad, hessian] = fminunc(lfunc, wInit, opts);
-        wvar = diag(inv(hessian));
-
-        %% Save results
-        filename = sprintf('GLMResults\\%s_unit%d_%s.mat', folderName, good_clusters(i),area);
-        fprintf('Saved: %s\n', filename);
-
-        % Collect the weights
-        ws = buildGLM.combineWeights(dmCell, wml);
-        wvars = buildGLM.combineWeights(dmCell, wvar);
-
-        save(filename, 'wml', 'wvar', 'ws', 'wvars', 'nlogli', 'exitflag', 'ostruct', ...
-            'grad', 'hessian');
-
+                % ks statistic
+                [h,p] = kstest(zvals, 'CDF', pd);
+                fprintf('   p-val = %.4f\n', p);
+            end
+        else
+            p = -2;
+            disp('Dimension mismatch');
+        end
+        pvallst(ctr) = p;
+        totalSpikes(ctr) = sum(y);
+        foldernames{ctr} = folderName;
+        clustIDs(ctr) = good_clusters(i);
+        ctr = ctr + 1;
+        disp(numel(pvallst))
         toc;
+        
+        %% KS plot
+        plot(sort(zvals), (1:numel(zvals)) / numel(zvals), 'LineWidth', 2)
+        hold on
+        err = 1.36 / (numel(zvals))^0.5;
+        plot([0, 1], [0, 1], 'k--', 'LineWidth', 2)
+        plot([0, 1], [err, 1+err], 'k--', 'LineWidth', 2)
+        plot([0, 1], [-err, 1-err], 'k--', 'LineWidth', 2)
+        mymakeaxis(gca, 'yticks',[0, 0.5, 1], 'xticks', [0, 0.5, 1],...
+    'y_label', 'Cumulative Distribution Function',...
+    'x_label', 'Quantiles', 'font_size', 20)
+        %set(gca, 'FontSize', 20);
+%         
+%         %% Histogram
+%         nbins = 50;
+%         hist(zvals, nbins)
+%         expheight = numel(zvals)/nbins;
+%         std = sqrt(numel(zvals) * (1/nbins) * (1-1/nbins)); 
+%         hold on;
+%         plotHorizontal(expheight);
+%         plotHorizontal(expheight + std * 1.96);
+%         plotHorizontal(expheight - std * 1.96);
 
     end
     clear trialData;
 toc;
 end
-%% Visualize
-% for i = 1:2
-%     fig = figure(i+2); clf;
-%     nCovar = numel(dspecCell.covar);
-%     count = 1;
-%     lst = [1, 2, 3, 4, 5, 6, 7];
-%     for kCov = lst
-%         label = dspecCell.covar(kCov).label;
-%         subplot(numel(lst), 1, count);
-%         %plot(ws.(label).tr, (ws.(label).data));
-%         errorbar(ws_all(i).(label).tr, ws_all(i).(label).data, sqrt(wvars_all(i).(label).data));
-%         hline(0)
-%         %ylim([-10 10])
-%         title(label);
-%         count = count + 1;
-%         ylim([-10 10])
-%     end
+
+
+%% Save
+savefilename = 'kstestresults_VISp_05032020.mat';
+if ~exist(savefilename, 'file')
+    save(savefilename, 'pvallst', 'totalSpikes', 'foldernames', 'clustIDs')
+end
+%%
+% load('kstestresults_ACA.mat');
+% for ifolder = 1:numel(dirs)
+%     folderName = subdirs{ifolder};
+%     subtbl = master(master(:,2) >= 2 & strcmp(dirs, folderName) & ...
+%         strcmp(txt(:,7), area), :);
+%     good_clusters = subtbl(:, 4);
+% toc;
 % end
-
-%save('ws_wvar_Theiler1011VISp.mat', 'ws_all', 'wvars_all');
-
-function spikeTrialTimes = splitSpikeTimesToTrials(spikes, tstarts, tends)
-spikeTrialTimes = {};
-for i = 1:numel(tstarts)
-    spikeTrial = spikes(spikes > tstarts(i) & spikes < tends(i));
-    spikeTrialTimes{i} = spikeTrial;
-end
-
-end
-
-function [x, y, spikeBinnedCounts] = BinSpikeTimes(spikes, tstarts, window, nbins)
-    spikeBinnedCounts = zeros(numel(tstarts), nbins - 1);
-    for i = 1:numel(tstarts)
-        spikeTrial = spikes(spikes > tstarts(i) + window(1) & spikes < tstarts(i) + window(2));
-        edges = linspace(tstarts(i) + window(1), tstarts(i) + window(2), nbins);
-        counts = histogram(spikeTrial, edges);
-        spikeBinnedCounts(i,:) = counts.Values;
-    end
-    y = 1:numel(tstarts);
-    x = linspace(window(1), window(2), nbins);
-end
-
-
-
-
-
-
-
 
 
 

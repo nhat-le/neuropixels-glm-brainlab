@@ -28,7 +28,7 @@ expt = buildGLM.registerSpikeTrain(expt, 'sptrain', 'Our Neuron'); % Spike train
 txt = txt(2:end,:);
 
 %%
-area = 'VISam';
+area = 'VISp';
 dirs = txt(:,end);
 % Directories containing the area
 subdirs = unique(dirs(master(:,2) >= 2 & strcmp(txt(:,7), area), :));
@@ -98,6 +98,7 @@ for ifolder = 1:numel(dirs)
     %% Get the spike trains back to regress against
     for i = 1:numel(good_clusters)
         name = sprintf('sptrain%d', i);
+        dspecCell = dspec;
         dspecCell = buildGLM.addCovariateSpiketrain(dspec, 'hist', name, 'History filter', bshist);
         dmCell = buildGLM.compileSparseDesignMatrix(dspecCell, trialIndices);
 

@@ -52,7 +52,7 @@ for i = 1:numel(files)
 end
 
 %% Save
-savefilename = 'compiled_allGLMResults.mat';
+savefilename = 'compiled_allGLMResults_05032020.mat';
 if ~exist(savefilename, 'file')
     save(savefilename, 'sigCellsStim', 'sigCellsRew', 'sigCellsLeft',...
         'sigCellsRight', 'sigCellsPun', 'directory', 'clusterID', 'area');

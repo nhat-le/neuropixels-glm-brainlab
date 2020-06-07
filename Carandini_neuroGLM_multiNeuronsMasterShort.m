@@ -28,13 +28,12 @@ expt = buildGLM.registerSpikeTrain(expt, 'sptrain', 'Our Neuron'); % Spike train
 txt = txt(2:end,:);
 
 %%
-area = 'LP';
+area = 'SCm';
 dirs = txt(:,end);
 % Directories containing the area
 subdirs = unique(dirs(master(:,2) >= 2 & strcmp(txt(:,7), area), :));
 Nunits = numel(dirs(master(:,2) >= 2 & strcmp(txt(:,7), area), :));
 tic;
-%%
 for ifolder = 1:numel(dirs)
     folderName = subdirs{ifolder};
     subtbl = master(master(:,2) >= 2 & strcmp(dirs, folderName) & ...
@@ -62,6 +61,7 @@ for ifolder = 1:numel(dirs)
     trialData.trials_left_contrast = readNPY(fullfile(folder, 'trials.visualStim_contrastLeft.npy'));
     trialData.trials_right_contrast = readNPY(fullfile(folder, 'trials.visualStim_contrastRight.npy'));
     trialData.trials_decision_times = readNPY(fullfile(folder, 'trials.decision_times.npy'));
+    
     %% Build the trial structure
     trialData.spikes = nan;
 
@@ -70,7 +70,7 @@ for ifolder = 1:numel(dirs)
         trialData.spikes_other{i} = spikes_times(spikes_clusters == good_clusters(i));
     end
 
-    trialStruct = makeTrialStruct(trialData);
+    trialStruct = makeTrialStructShort(trialData);
 
     expt.trial = trialStruct;
 
@@ -98,6 +98,7 @@ for ifolder = 1:numel(dirs)
     %% Get the spike trains back to regress against
     for i = 1:numel(good_clusters)
         name = sprintf('sptrain%d', i);
+        dspecCell = dspec;
         dspecCell = buildGLM.addCovariateSpiketrain(dspec, 'hist', name, 'History filter', bshist);
         dmCell = buildGLM.compileSparseDesignMatrix(dspecCell, trialIndices);
 
